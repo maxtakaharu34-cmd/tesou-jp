@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#1a0030" />
+<title>手相診断</title>
+<link href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+P+One&family=Kosugi+Maru&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box}html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{font-family:"Kosugi Maru",system-ui,sans-serif;color:#fff;background:radial-gradient(800px 500px at 30% 10%,rgba(168,116,224,.3),transparent 70%),linear-gradient(180deg,#1a0040,#08010f);touch-action:manipulation;user-select:none;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100dvh;padding:12px;gap:10px;max-width:480px;margin:0 auto;align-items:center}
+.title{font-family:"Mochiy Pop P One",sans-serif;font-size:24px;color:#ffe066;-webkit-text-stroke:3px #000;paint-order:stroke fill;text-shadow:3px 3px 0 #a874e0;margin:6px 0;text-align:center}
+.cam-wrap{flex:1;width:100%;max-width:380px;aspect-ratio:1;border-radius:18px;overflow:hidden;position:relative;background:#000;border:4px solid #a874e0;box-shadow:0 0 20px rgba(168,116,224,.4)}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.guide{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:75%;aspect-ratio:1;border:2px dashed rgba(255,255,255,.5);border-radius:50%;pointer-events:none;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.6);font-size:11px}
+.guide.hide{display:none}
+.lines{position:absolute;inset:0;pointer-events:none;display:none}
+.lines.show{display:block}
+.results{flex:1;width:100%;max-width:380px;background:rgba(0,0,0,.5);border:2px solid #a874e0;border-radius:14px;padding:12px;display:none;overflow-y:auto}
+.results.show{display:block}
+.results h3{margin:6px 0;font-family:"Mochiy Pop P One",sans-serif;color:#ffe066;font-size:14px}
+.results .row{display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12px}
+.results .row .ic{font-size:22px}
+.results .row .lbl{flex:0 0 80px;color:#a874e0;font-weight:bold}
+.results .row .stars{flex:1}
+.results .row .v{font-size:11px;opacity:.85;margin-top:2px}
+.actions{display:flex;gap:8px;width:100%;justify-content:center;flex-wrap:wrap}
+.actions button{background:#a874e0;color:#fff;border:3px solid #000;padding:10px 18px;font-family:"Mochiy Pop P One",sans-serif;font-size:13px;border-radius:999px;cursor:pointer;box-shadow:3px 3px 0 #000}
+.actions .share{background:#1da1f2}
+.actions button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #000}
+.actions button:disabled{opacity:.4}
+.note{font-size:9px;opacity:.65;text-align:center;line-height:1.5}
+.err{padding:10px;background:rgba(255,0,0,.2);border:2px solid #f55;border-radius:10px;font-size:12px;display:none}
+.err.show{display:block}
+</style>
+</head>
+<body>
+<div id="app">
+<h1 class="title">手相診断 ✋</h1>
+<div class="cam-wrap" id="wrap">
+  <video id="vid" autoplay playsinline muted></video>
+  <canvas id="cv"></canvas>
+  <svg class="lines" id="lines" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+  <div class="guide" id="guide">手のひらを<br/>枠に合わせて</div>
+</div>
+<div class="results" id="results">
+  <h3>あなたの手相</h3>
+  <div id="rows"></div>
+</div>
+<div class="actions">
+  <button id="btn-go">✋ タップで占う</button>
+  <button id="btn-share" class="share" disabled>🔗 シェア</button>
+</div>
+<div class="note">※ネタ占い。手のひらが見えれば何でもOK</div>
+<div class="err" id="err"></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const SHARE_URL='https://maxtakaharu34-cmd.github.io/tesou-jp/';
+const CATS=[
+{key:'love',ic:'💕',lbl:'恋愛運',cmts:['この一年で運命の出会いあり','片想いが急展開する暗示','元カレ/カノから連絡が来そう','現在進行形の関係が深まる','自分磨きで運気急上昇','慎重さが吉と出る']},
+{key:'money',ic:'💰',lbl:'金運',cmts:['臨時収入の予感','ギャンブルは控えめが吉','大きな買い物は来月以降','投資の勉強で運気アップ','貯金体質が花開く','人付き合いで金運アップ']},
+{key:'work',ic:'💼',lbl:'仕事運',cmts:['転職で開花','現職で評価爆上がり','新しいスキル習得が鍵','人脈が運を呼ぶ','集中力MAXな時期','休息も大事']},
+{key:'health',ic:'💪',lbl:'健康運',cmts:['今が一番元気','睡眠を見直すと吉','腸活がブーム','歯医者は早めに','水分補給を意識','歩く習慣で運気上昇']},
+{key:'fame',ic:'⭐',lbl:'人気運',cmts:['SNSがバズる気配','カリスマ化の予感','友達増殖期','一目置かれる存在に','サークルの中心に','インフルエンサー素質あり']},
+{key:'travel',ic:'✈',lbl:'旅運',cmts:['海外旅行で運命が動く','近場で素敵な発見','一人旅で人生変わる','合宿で絆が深まる','聖地巡礼の予感','秋に大移動の暗示']}
+];
+const $=(id)=>document.getElementById(id);
+const vid=$('vid'),cv=$('cv'),guide=$('guide'),lines=$('lines'),results=$('results'),rowsEl=$('rows');
+let stream=null,lastResult=null;
+async function startCam(){
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:480,height:480},audio:false});
+    vid.srcObject=stream;await vid.play();return true;
+  }catch(e){
+    try{stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});vid.srcObject=stream;await vid.play();return true}
+    catch(e2){$('err').textContent='カメラ起動失敗: '+e2.message;$('err').classList.add('show');return false}
+  }
+}
+async function go(){
+  const btn=$('btn-go');
+  if(!stream){btn.textContent='起動中…';btn.disabled=true;
+    const ok=await startCam();btn.disabled=false;
+    if(!ok){btn.textContent='✋ タップで占う';return}
+    await new Promise(r=>setTimeout(r,400));
+  }
+  divine();btn.textContent='🔄 もう一度';
+}
+function divine(){
+  const w=vid.videoWidth||320,h=vid.videoHeight||240;
+  cv.width=w;cv.height=h;
+  const ctx=cv.getContext('2d');ctx.drawImage(vid,0,0,w,h);
+  const d=ctx.getImageData(0,0,w,h).data;
+  let h1=0x811c9dc5;
+  for(let i=0;i<d.length;i+=64){h1^=d[i];h1=Math.imul(h1,16777619)>>>0}
+  guide.classList.add('hide');
+  // Draw fake palm lines on overlay
+  while(lines.firstChild)lines.removeChild(lines.firstChild);
+  const ns='http://www.w3.org/2000/svg';
+  for(let i=0;i<3;i++){
+    const path=document.createElementNS(ns,'path');
+    const x1=20+(h1>>(i*4))%30,y1=30+(h1>>(i*4+8))%20;
+    const x2=70+(h1>>(i*4+12))%20,y2=50+(h1>>(i*4+16))%30;
+    const cx=50+(h1>>(i*4+20))%30,cy=60+(h1>>(i*4+24))%15;
+    path.setAttribute('d',`M${x1},${y1} Q${cx},${cy} ${x2},${y2}`);
+    path.setAttribute('stroke',['#ffe066','#ff5fa2','#5fc4ff'][i]);
+    path.setAttribute('stroke-width','0.8');path.setAttribute('fill','none');
+    path.setAttribute('opacity','0.85');
+    lines.appendChild(path);
+  }
+  lines.classList.add('show');
+  // Build rows
+  while(rowsEl.firstChild)rowsEl.removeChild(rowsEl.firstChild);
+  const summary=[];
+  CATS.forEach((c,i)=>{
+    const score=1+((h1>>(i*5))&7); // 1-8
+    const stars='★'.repeat(Math.min(5,Math.max(1,Math.round(score/1.6))))+'☆'.repeat(Math.max(0,5-Math.round(score/1.6)));
+    const cmt=c.cmts[(h1>>(i*3))%c.cmts.length];
+    const r=document.createElement('div');r.className='row';
+    const ic=document.createElement('div');ic.className='ic';ic.textContent=c.ic;
+    const lbl=document.createElement('div');lbl.className='lbl';lbl.textContent=c.lbl;
+    const right=document.createElement('div');right.style.flex='1';
+    const st=document.createElement('div');st.className='stars';st.textContent=stars;st.style.color='#ffe066';
+    const v=document.createElement('div');v.className='v';v.textContent=cmt;
+    right.appendChild(st);right.appendChild(v);
+    r.appendChild(ic);r.appendChild(lbl);r.appendChild(right);
+    rowsEl.appendChild(r);
+    summary.push(`${c.lbl}${stars.split('☆')[0].length}`);
+  });
+  results.classList.add('show');
+  lastResult=summary.join(' / ');
+  $('btn-share').disabled=false;
+  fanfare();
+}
+let ac=null;const en=()=>{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();return ac};
+const beep=(f,d,t='triangle',g=.13)=>{const a=en();const o=a.createOscillator();const gn=a.createGain();o.type=t;o.frequency.value=f;gn.gain.value=g;gn.gain.exponentialRampToValueAtTime(.0001,a.currentTime+d);o.connect(gn).connect(a.destination);o.start();o.stop(a.currentTime+d)};
+const fanfare=()=>{[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.18),i*120))};
+$('btn-go').addEventListener('click',()=>{en();go()});
+$('btn-share').addEventListener('click',()=>{
+  if(!lastResult)return;
+  const txt=`手相診断: ${lastResult} #手相診断`;
+  window.open(`https://x.com/intent/post?text=${encodeURIComponent(txt)}&url=${encodeURIComponent(SHARE_URL)}`,'_blank','noopener,noreferrer');
+});
+})();
+</script>
+</body>
+</html>
